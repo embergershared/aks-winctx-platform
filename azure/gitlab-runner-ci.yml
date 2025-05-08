@@ -1,0 +1,49 @@
+variables:
+  image_name: "classifieds"
+  image_tag: "v1043A"
+  github_original_repo_url: "https://github.com/embergershared/aks-wincont-gitlab.git"
+  kube_config_path: 'C:\poc-bin\kube-config'
+
+docker_image_build:
+  # when: manual
+  stage: build
+  tags:
+    - azure
+  script:
+    - |
+      git clone "$env:github_original_repo_url"
+      cd aks-wincont-gitlab
+      git switch platform-lz
+      cd src\Classifieds
+      docker build -t "$($env:acr_fqdn)/$($env:image_name):$($env:image_tag)" .
+      docker image list
+
+docker_image_push:
+  stage: build
+  tags:
+    - azure
+  script:
+    - |
+      az login --identity --client-id "$env:msi_clientid"
+      az acr login --name "$env:acr_name"
+      docker push "$($env:acr_fqdn)/$($env:image_name):$($env:image_tag)"
+
+aks_get_creds:
+  stage: deploy
+  tags:
+    - azure
+  script:
+    - |
+        [System.Environment]::SetEnvironmentVariable('KUBECONFIG',"$env:kube_config_path")
+        az login --identity --client-id "$env:msi_clientid"
+        az aks get-credentials -g "$env:aks_rg" -n "$env:aks_name" --file "$env:kube_config_path" --overwrite-existing
+        kubelogin convert-kubeconfig -l msi --client-id "$env:msi_clientid"
+        kubectl get nodes -o wide
+
+aks_update_deployment:
+  stage: deploy
+  tags:
+    - azure
+  script:
+    - |
+      Write-Host "Updating deployment"
