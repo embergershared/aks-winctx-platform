@@ -1,0 +1,7 @@
+﻿
+CREATE PROCEDURE RemoveAd 
+@AdId int
+AS
+DELETE FROM Photos WHERE AdId = @AdId
+DELETE FROM SavedAds WHERE AdId = @AdId
+DELETE FROM Ads WHERE Id = @AdId

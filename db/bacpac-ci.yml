@@ -1,0 +1,165 @@
+# This file is a template, and might need editing before it works on your project.
+# This is a sample GitLab CI/CD configuration file that should run without any modifications.
+# It demonstrates a basic 3 stage CI/CD pipeline. Instead of real tests or scripts,
+# it uses echo commands to simulate the pipeline execution.
+#
+# A pipeline is composed of independent jobs that run scripts, grouped into stages.
+# Stages run in sequential order, but jobs within stages run in parallel.
+#
+# For more information, see: https://docs.gitlab.com/ee/ci/yaml/#stages
+#
+# You can copy and paste this template into a new `.gitlab-ci.yml` file.
+# You should not add this template to an existing `.gitlab-ci.yml` file by using the `include:` keyword.
+#
+# To contribute improvements to CI/CD templates, please follow the Development guide at:
+# https://docs.gitlab.com/development/cicd/templates/
+# This specific template is located at:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Getting-Started.gitlab-ci.yml
+
+stages:          # List of stages for jobs, and their order of execution
+  - login-to-azure
+  - get-files
+  - replace-tokens
+  - build-sql-bacpac
+  - publish-sql-bacpac
+  - deploy-sql-bacpac
+
+variables:       # Global variables that are applied to all jobs
+  # Variables assigned at repository/project level
+  #AZURE_CLIENT_ID: ""
+  #AZURE_CLIENT_SECRET: ""
+  #AZURE_TENANT_ID: ""
+  #AZURE_MANAGED_IDENTITY_ID: ""
+  #AZURE_SUBSCRIPTION_ID: ""
+  #AZURE_SQL_SERVER_NAME: ""
+  MSBUILD_PATH: 'C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe'
+
+login-to-azure:
+  stage: login-to-azure
+  tags:
+    - azure
+  before_script:
+    - |
+      Write-Output "Step:Login to Azure"
+  script:
+    - |
+      az login --identity --client-id $AZURE_CLIENT_ID --allow-no-subscriptions | Write-Output
+      az account set --subscription $AZURE_SUBSCRIPTION_ID | Write-Output
+      az account show | Write-Output
+  after_script:
+    - |
+      Write-Output "Logged in to Azure"
+
+get-files:       # This job runs in the build stage, which runs first.
+  stage: get-files
+  tags:
+    - azure
+  before_script:
+    - |
+      Write-Output "Step:Downloading source files"
+  script:
+    - |
+      Write-Output "Downloading source files from $CI_COMMIT_REF_NAME"
+      git checkout $CI_COMMIT_REF_NAME
+  after_script:
+    - |
+      Write-Output "Listing files in source directory"
+      Get-ChildItem -Path .\ -Recurse | Write-Output
+
+replace-tokens:
+  stage: replace-tokens
+  tags:
+    - azure
+  before_script:
+    - |
+      Write-Output "Step:Replacing tokens in build files"
+      Write-Output "Updating build files with managed identity id"
+  script:
+    - |
+      .\Scripts\replace-tokens.ps1 -directoryPath ".\db\Classifieds\Scripts\" -token "%%MANAGED_IDENTITY_ID%%" -replacement $AZURE_MANAGED_IDENTITY_ID | Write-Output
+      .\Scripts\replace-tokens.ps1 -directoryPath ".\db\TimeTracker\Scripts\" -token "%%MANAGED_IDENTITY_ID%%" -replacement $AZURE_MANAGED_IDENTITY_ID | Write-Output
+  after_script:
+    - |
+        Write-Output "Tokens replaced"
+
+# build-sql-bacpac:
+#   stage: build-sql-bacpac
+#   tags:
+#     - azure
+#   before_script:
+#     - |
+#       Write-Output "Step:Building bacpac"
+#       Write-Output "Listing files to build directory build"
+#       Get-ChildItem *.sqlproj -r | Write-Output
+#       Write-Output "Building bacpac using MSBuild in $CI_BUILDS_DIR"
+#       msbuild -version | Write-Output
+#   script:
+#     - |
+#       msbuild -t:Publish -p:SolutionDir= ".\db\Classifieds\Classifieds.sqlproj" -p:PublishDir="$CI_BUILDS_DIR\deploy\Classifieds.bacpac" -p:Configuration=Release -p:Platform="Any CPU" | Write-Output
+#       msbuild -t:Publish -p:SolutionDir= ".\db\TimeTracker\TimeTracker.sqlproj" -p:PublishDir="$CI_BUILDS_DIR\deploy\TimeTracker.bacpac" -p:Configuration=Release -p:Platform="Any CPU" | Write-Output
+#   artifacts:
+#     untracked: false
+#     when: on_success
+#     access: all
+#     expire_in: "30 days"
+#     paths:
+#       - deploy/*.bacpac
+#   after_script:
+#     - |
+#       Write-Output "Listing bacpac files in DEPLOY directory build"
+#       Get-ChildItem *.bacpac -r | Write-Output
+
+deploy-sql-bacpac:
+  stage: deploy-sql-bacpac
+  tags:
+    - azure
+  before_script:
+    - |
+      Write-Output "Step:Deploying bacpac"
+  script:
+    - |
+      Write-Output "Deploying bacpac"
+      Write-Output SqlPackage /Action:Import /SourceFile:".\db\Classifieds.bacpac" /TargetConnectionString:"Server=tcp:$AZURE_SQL_SERVER_NAME.database.windows.net,1433;Initial Catalog=Classifieds;Authentication=Active Directory Managed Identity;User Id=$AZURE_MANAGED_IDENTITY_ID;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+      Write-Output SqlPackage /Action:Import /SourceFile:".\db\TimeTracker.bacpac" /TargetConnectionString:"Server=tcp:$AZURE_SQL_SERVER_NAME.database.windows.net,1433;Initial Catalog=TimeTracker;Authentication=Active Directory Managed Identity;User Id=$AZURE_MANAGED_IDENTITY_ID;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+      SqlPackage /Action:Import /SourceFile:".\db\Classifieds.bacpac" /TargetConnectionString:"Server=tcp:$AZURE_SQL_SERVER_NAME.database.windows.net,1433;Initial Catalog=Classifieds;Authentication=Active Directory Managed Identity;User Id=$AZURE_MANAGED_IDENTITY_ID;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;" | Write-Output
+      SqlPackage /Action:Import /SourceFile:".\db\TimeTracker.bacpac" /TargetConnectionString:"Server=tcp:$AZURE_SQL_SERVER_NAME.database.windows.net,1433;Initial Catalog=TimeTracker;Authentication=Active Directory Managed Identity;User Id=$AZURE_MANAGED_IDENTITY_ID;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;" | Write-Output
+  when: manual
+  after_script:
+    - |
+      Write-Output "Competed deployment"
+
+# publish-sql-bacpac:
+#   stage: publish-sql-bacpac
+#   tags:
+#     - azure
+#   before_script:
+#     - |
+#       Write-Output "Step:Publishing bacpac"
+#   script:
+#     - |
+#       Write-Output "Publishing bacpacs"
+#       SqlPackage.exe /Action:Publish /SourceFile:"$CI_BUILDS_DIR\deploy\Classifieds.bacpac" /p:DropObjectsNotInSource=true /p:ScriptDatabaseOptions=false /p:BlockOnPossibleDataLoss=false /p:CreateNewDatabase=true /p:IgnoreExtendedProperties=true /p:DeployDatabaseInSingleUserMode=true | Write-Output
+#       SqlPackage.exe /Action:Publish /SourceFile:"$CI_BUILDS_DIR\deploy\TimeTracker.bacpac" /p:DropObjectsNotInSource=true /p:ScriptDatabaseOptions=false /p:BlockOnPossibleDataLoss=false /p:CreateNewDatabase=true /p:IgnoreExtendedProperties=true /p:DeployDatabaseInSingleUserMode=true | Write-Output
+#   after_script:
+#     - |
+#       Write-Output "Listing bacpac files in deploy directory AFTER publish"
+#       Get-ChildItem *.bacpac -r  | Write-Output
+
+# deploy-sql-bacpac:
+#   stage: deploy-sql-bacpac
+#   tags:
+#     - azure
+#   before_script:
+#     - |
+#       Write-Output "Step:Deploying bacpac"
+#   script:
+#     - |
+#       Write-Output "Deploying bacpac"
+#       SqlPackage /Action:Import /SourceFile:"$CI_BUILDS_DIR\deploy\Classifieds.bacpac" /TargetConnectionString:"Server=tcp:$AZURE_SQL_SERVER_NAME.database.windows.net,1433;Initial Catalog=Classifieds;Authentication=Active Directory Managed Identity;User Id=$AZURE_MANAGED_IDENTITY_ID;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;" | Write-Output
+#       SqlPackage /Action:Import /SourceFile:"$CI_BUILDS_DIR\deploy\TimeTracker.bacpac" /TargetConnectionString:"Server=tcp:$AZURE_SQL_SERVER_NAME.database.windows.net,1433;Initial Catalog=TimeTracker;Authentication=Active Directory Managed Identity;User Id=$AZURE_MANAGED_IDENTITY_ID;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;" | Write-Output
+#   when: manual
+#   after_script:
+#     - |
+#       Write-Output "Competed deployment"
+
+
