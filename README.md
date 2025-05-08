@@ -1,6 +1,6 @@
 # AKS - Windows containers - Full Platform demonstrator
 
-Legacy .NET Framework + SQL Server applications ported on AKS leveraging Windows containers, full platform demonstrator.
+Full demonstrator of: Legacy .NET Framework applications with their SQL Server databases, ported on AKS, leveraging Windows containers.
 
 ## Overview
 
