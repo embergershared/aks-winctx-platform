@@ -1,0 +1,68 @@
+stages:
+  - get_source_files
+  - build_push_image
+  - deploy
+
+variables:
+  image_name: "classifieds"
+  image_tag: $CI_COMMIT_SHORT_SHA
+  kube_config_path: 'C:\poc-bin\kube-config'
+
+get_source_files:
+  stage: get_source_files
+  tags: 
+    - azure
+  before_script:
+    - |
+      Write-Output "Step: Getting source files"
+  script:
+    - |
+      git checkout $CI_COMMIT_REF_NAME
+  after_script:
+    - | 
+      Write-Output "Listing files in source directory"
+      Get-ChildItem -Path .\ -Recurse | Write-Output
+
+docker_image_build:
+  stage: build_push_image
+  tags:
+    - azure
+  before_script:
+    - |
+      Write-Output "Step: Build image with tag [${image_tag}]"
+  script:
+    - |
+      cd .\src\Classifieds
+      docker build -t "$($env:acr_fqdn)/$($env:image_name):$($env:image_tag)" .
+      docker image list
+
+docker_image_push:
+  stage: build_push_image
+  tags:
+    - azure
+  before_script:
+    - |
+      Write-Output "Step: Pushing to Azure Container Registry"
+  script:
+    - |
+      az login --identity --client-id "$env:msi_clientid"
+      az acr login --name "$env:acr_name"
+      docker push "$($env:acr_fqdn)/$($env:image_name):$($env:image_tag)"
+
+aks_update_deployment:
+  stage: deploy
+  tags:
+    - azure
+  before_script:
+    - |
+      Write-Output "Step: Updating Kubernetes"
+  script:
+    - |
+      [System.Environment]::SetEnvironmentVariable('KUBECONFIG',"$env:kube_config_path")
+      az login --identity --client-id "$env:msi_clientid"
+      az aks get-credentials -g "$env:aks_rg" -n "$env:aks_name" --file "$env:kube_config_path" --overwrite-existing
+      kubelogin convert-kubeconfig -l msi --client-id "$env:msi_clientid"
+      kubectl get nodes -o wide
+  after_script:
+    - |
+      Write-Output "Updated deployment"
